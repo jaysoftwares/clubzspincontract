@@ -1,0 +1,56 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+
+# Pinned. Never float the pragma on an immutable contract.
+solc = "0.8.28"
+evm_version = "cancun"
+
+optimizer = true
+optimizer_runs = 1000
+via_ir = false
+
+# Deterministic bytecode: no metadata hash appended, so a verifier rebuilding
+# from source gets a byte-identical artifact.
+bytecode_hash = "none"
+cbor_metadata = false
+
+gas_reports = ["SpinAssignment", "SpinRegistry"]
+
+[profile.default.fuzz]
+runs = 1024
+max_test_rejects = 200000
+
+[profile.default.invariant]
+runs = 256
+depth = 64
+fail_on_revert = false
+shrink_run_limit = 5000
+
+# CI turns the screws. `FOUNDRY_PROFILE=ci forge test`
+[profile.ci.fuzz]
+runs = 20000
+
+[profile.ci.invariant]
+runs = 1024
+depth = 256
+fail_on_revert = false
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+multiline_func_header = "attributes_first"
+sort_imports = true
+
+[rpc_endpoints]
+base = "${BASE_RPC_URL}"
+base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+
+[etherscan]
+base = {key = "${BASESCAN_API_KEY}", chain = 8453}
+base_sepolia = {key = "${BASESCAN_API_KEY}", chain = 84532}

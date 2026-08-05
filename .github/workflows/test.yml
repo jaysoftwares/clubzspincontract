@@ -1,0 +1,71 @@
+name: CI
+
+permissions: {}
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Cranks fuzz runs to 20k and invariant depth to 256. See foundry.toml.
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  check:
+    name: Foundry project
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Show Forge version
+        run: forge --version
+
+      # Formatting is enforced, not suggested. Diff noise in an audited contract
+      # costs real money in review hours.
+      - name: Run Forge fmt
+        run: forge fmt --check
+
+      - name: Run Forge build
+        run: forge build --sizes
+
+      - name: Run Forge tests
+        run: forge test -vvv
+
+      # A change that pushes finalization past its gas budget fails here rather than
+      # surprising anyone on mainnet.
+      - name: Check gas snapshot
+        run: |
+          forge snapshot --check \
+            || (echo "::error::gas snapshot drifted; run 'forge snapshot' and commit .gas-snapshot" && exit 1)
+
+  slither:
+    name: Slither
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build with build-info
+        run: forge build --build-info --force
+
+      - uses: crytic/slither-action@v0.4.0
+        with:
+          ignore-compile: true
+          fail-on: medium
+          slither-args: --filter-paths "lib/|test/|script/"
