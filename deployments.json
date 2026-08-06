@@ -4,16 +4,17 @@
     "name": "base-mainnet",
     "deployedAt": "2026-08-05",
     "SpinAssignment": {
-      "address": "0x6Bb0d32dCa4F58cb89191dDEc4b47481C028f753",
-      "txHash": "0x9b7fb6a191b327d8951b67f0cc9c3f386e9a9f5ca0d668570b797c217737cb6f",
+      "address": "0xaCb6b6827948f75A7d81f00551e5De3390243259",
+      "deployedAt": "2026-08-06",
       "immutable": true,
-      "verified": false
+      "verified": true,
+      "note": "v2. Replaces 0x6Bb0d32d... which had a checks-effects-interactions violation in commitStage1/commitBatch (external VRF call before the state write). Rolled over through SpinRegistry, which is exactly what the registry exists for. Nothing was bound to v1, so nothing had to migrate."
     },
     "SpinRegistry": {
       "address": "0x74CEf46279AeAa7A08973B4a8090a9fdDf6db832",
       "txHash": "0x8ec436bce9ca68cfee6b54c73fe6c1cfe1ea78718ae02564757f681ef23e478e",
       "immutable": false,
-      "verified": false
+      "verified": true
     },
     "vrf": {
       "coordinator": "0xd5D517aBE5cF79B7e95eC98dB0f0277788aFF634",
@@ -29,11 +30,16 @@
       "safe": null
     },
     "outstanding": [
-      "Add SpinAssignment as a consumer on the VRF subscription, or every request reverts with InvalidConsumer",
-      "Transfer subscription ownership to the deployer, or add the consumer from 0xbddf499207d29E920c0500642567b43238b30fD3",
-      "Verify source on Basescan once an API key exists: forge verify-contract",
-      "Create the Safe and hand over ownership of BOTH contracts (two-step: transferOwnership then acceptOwnership)",
-      "External audit before binding any real-money contest. Deployment alone is safe; exposure begins at binding."
-    ]
+      "Add the NEW SpinAssignment 0xaCb6b682... as a VRF consumer. The old address can be removed.",
+      "Update SPIN_ASSIGNMENT_ADDRESS to 0xaCb6b682... on BOTH spinworker and clubzapi.",
+      "Fund the operator 0xdC95... with Base ETH; it holds ~0.0026 and the floor is 0.005.",
+      "Create a Safe and transfer ownership of both contracts (two-step: transferOwnership then acceptOwnership).",
+      "Audit before binding any real-money contest."
+    ],
+    "SpinAssignment_v1_superseded": {
+      "address": "0x6Bb0d32dCa4F58cb89191dDEc4b47481C028f753",
+      "verified": true,
+      "note": "SUPERSEDED, do not use. Still approved in the registry so any contest bound to it could settle, but none ever was."
+    }
   }
 }

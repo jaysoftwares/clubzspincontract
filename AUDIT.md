@@ -43,8 +43,13 @@ off-chain and committed here as two Merkle roots.
 
 | Contract | Address | Verified |
 |---|---|---|
-| SpinAssignment | `0x6Bb0d32dCa4F58cb89191dDEc4b47481C028f753` | Basescan + Sourcify (full match) |
+| SpinAssignment | `0xaCb6b6827948f75A7d81f00551e5De3390243259` | Basescan (full match) |
 | SpinRegistry | `0x74CEf46279AeAa7A08973B4a8090a9fdDf6db832` | Basescan + Sourcify (full match) |
+
+A superseded v1 (`0x6Bb0d32dCa4F58cb89191dDEc4b47481C028f753`) is still on chain
+and still approved in the registry, but nothing was ever bound to it. It was
+replaced after Slither found the CEI violation described in section 6. **Audit
+`0xaCb6b682…3259`, not v1.**
 
 No contest has been bound yet, so neither contract is live in any economic
 sense. Deployment alone is inert: `SpinRegistry` gates which implementation a
