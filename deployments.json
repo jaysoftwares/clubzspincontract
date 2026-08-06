@@ -1,0 +1,39 @@
+{
+  "note": "Deployed addresses per chain. The worker reads these; they are safe to commit because SpinAssignment is immutable, so an address and its ABI can never drift apart. A new version means a new address recorded here, resolved through SpinRegistry.",
+  "8453": {
+    "name": "base-mainnet",
+    "deployedAt": "2026-08-05",
+    "SpinAssignment": {
+      "address": "0x6Bb0d32dCa4F58cb89191dDEc4b47481C028f753",
+      "txHash": "0x9b7fb6a191b327d8951b67f0cc9c3f386e9a9f5ca0d668570b797c217737cb6f",
+      "immutable": true,
+      "verified": false
+    },
+    "SpinRegistry": {
+      "address": "0x74CEf46279AeAa7A08973B4a8090a9fdDf6db832",
+      "txHash": "0x8ec436bce9ca68cfee6b54c73fe6c1cfe1ea78718ae02564757f681ef23e478e",
+      "immutable": false,
+      "verified": false
+    },
+    "vrf": {
+      "coordinator": "0xd5D517aBE5cF79B7e95eC98dB0f0277788aFF634",
+      "keyHash": "0xdc2f87677b01473c763cb0aee938ed3341512f6057324a584e5944e786144d70",
+      "gasLane": "30 gwei",
+      "subscriptionId": "28984827956523072124384244187082535127004953009439558105825994785270934367314",
+      "nativePayment": true,
+      "consumerAdded": false
+    },
+    "roles": {
+      "owner": "0xdC95eeFD3C5914d9Dd4C34e81DCF957A67F7C04A",
+      "operator": "0xdC95eeFD3C5914d9Dd4C34e81DCF957A67F7C04A",
+      "safe": null
+    },
+    "outstanding": [
+      "Add SpinAssignment as a consumer on the VRF subscription, or every request reverts with InvalidConsumer",
+      "Transfer subscription ownership to the deployer, or add the consumer from 0xbddf499207d29E920c0500642567b43238b30fD3",
+      "Verify source on Basescan once an API key exists: forge verify-contract",
+      "Create the Safe and hand over ownership of BOTH contracts (two-step: transferOwnership then acceptOwnership)",
+      "External audit before binding any real-money contest. Deployment alone is safe; exposure begins at binding."
+    ]
+  }
+}

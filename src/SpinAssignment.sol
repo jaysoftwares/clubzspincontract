@@ -321,15 +321,23 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
         if (c.status != ContestStatus.NONE) revert ContestExists();
         if (saltCommitment == bytes32(0)) revert SaltCommitmentRequired();
 
-        requestId = _requestRandomWord();
-
+        // CHECKS-EFFECTS-INTERACTIONS. Claim the contest slot BEFORE calling the
+        // coordinator, so a reentrant call finds `status != NONE` and reverts
+        // with ContestExists rather than starting a second contest on this id.
         c.snapshotHash = snapshotHash;
         c.scoringHash = scoringHash;
         c.builderHash = builderHash;
         c.saltCommitment = saltCommitment;
-        c.buildSeedRequestId = requestId;
         c.status = ContestStatus.STAGE1;
 
+        requestId = _requestRandomWord();
+
+        // `requestId` is only knowable from the coordinator's RETURN VALUE, so
+        // this write is structurally impossible to hoist above the call. It is
+        // safe because the contest slot is already claimed above: a reentrant
+        // call reverts with ContestExists before reaching this line.
+        // slither-disable-next-line reentrancy-no-eth,reentrancy-benign,reentrancy-events
+        c.buildSeedRequestId = requestId;
         _requests[requestId] = PendingRequest({kind: RequestKind.BUILD_SEED, targetId: contestId});
 
         emit Stage1Committed(contestId, snapshotHash, scoringHash, builderHash, saltCommitment, requestId);
@@ -407,21 +415,33 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
         if (_batches[batchId].contestId != bytes32(0)) revert BatchExists();
 
         bytes32 entriesHash = keccak256(abi.encodePacked(entryIds));
-        requestId = _requestRandomWord();
 
+        // CHECKS-EFFECTS-INTERACTIONS. Claim the batch slot and burn the
+        // sequence number BEFORE calling the coordinator. A reentrant call then
+        // hits either BatchExists or BadSequence instead of committing a second
+        // batch over the same entries, which would consume two deck indexes per
+        // entry.
         _batches[batchId] = Batch({
             contestId: contestId,
             entriesHash: entriesHash,
             seed: bytes32(0),
-            requestId: requestId,
+            requestId: 0,
             size: size,
             cursor: 0,
             sequence: sequence,
             segment: segment,
             seeded: false
         });
-
         nextBatchSequence[contestId][segment] = expected + 1;
+
+        requestId = _requestRandomWord();
+
+        // Only knowable from the coordinator's RETURN VALUE, so structurally
+        // impossible to hoist above the call. Safe because the batch slot is
+        // claimed and the sequence burned above: a reentrant call reverts with
+        // BatchExists or BadSequence before reaching this line.
+        // slither-disable-next-line reentrancy-no-eth,reentrancy-benign,reentrancy-events
+        _batches[batchId].requestId = requestId;
         _requests[requestId] = PendingRequest({kind: RequestKind.BATCH_SEED, targetId: batchId});
 
         emit BatchCommitted(batchId, contestId, segment, sequence, entriesHash, entryIds, requestId);

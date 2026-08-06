@@ -68,4 +68,4 @@ jobs:
         with:
           ignore-compile: true
           fail-on: medium
-          slither-args: --filter-paths "lib/|test/|script/"
+          

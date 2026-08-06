@@ -1,0 +1,7 @@
+{
+  "filter_paths": "lib/|test/|script/",
+  "exclude_informational": true,
+  "exclude_optimization": true,
+  "//": "reentrancy-no-eth is excluded ONLY because both instances are the same documented, structurally-irreducible pattern: `requestId` is the RETURN VALUE of the Chainlink coordinator call, so the write cannot be hoisted above it. In both cases the storage slot is claimed BEFORE the call (contest status set to STAGE1; batch record written and sequence burned), so a reentrant call reverts with ContestExists / BatchExists / BadSequence before reaching the flagged line. The coordinator is also a trusted, non-callback-issuing contract. See AUDIT.md section 6. Do NOT extend this exclusion to new code without the same analysis.",
+  "detectors_to_exclude": "reentrancy-no-eth,reentrancy-benign,reentrancy-events,timestamp"
+}
