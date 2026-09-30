@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {VRFConsumerBaseV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
+import {IVRFCoordinatorV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
 import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
+import {Ownable, Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+
+/// @dev The one registry read this contract makes. Declared as an interface so the
+///      assignment contract does not depend on the registry's implementation.
+interface ISpinRegistryBinding {
+    function implementationOf(bytes32 contestId) external view returns (address);
+}
 
 /// @title SpinAssignment
 /// @notice Commitment and randomized lineup assignment for Clubz Spin.
@@ -35,7 +42,35 @@ import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/V
 ///         to let the operator withhold a reveal.
 ///      5. `pause()` stops work entering, never work finishing. It must not be able to
 ///         delay or alter an in-flight assignment.
-contract SpinAssignment is VRFConsumerBaseV2Plus {
+///
+///      v3 (WebThree H-07 and M-08). v2 is what is deployed at 0xaCb6b682...; this
+///      source is its successor and must be deployed as a new instance and rolled
+///      over through `SpinRegistry`. What changed, and why:
+///
+///      6. The VRF coordinator is IMMUTABLE. v2 inherited Chainlink's
+///         `VRFConsumerBaseV2Plus`, whose `setCoordinator` let the owner point the
+///         contract at any address and then "fulfil" pending requests with chosen
+///         randomness. That setter is not virtual, so it cannot be overridden: this
+///         contract implements the consumer callback itself instead. A coordinator
+///         migration is handled the same way as any other change, by a new deployment
+///         behind the registry.
+///      7. Owner and operator are different keys, enforced here rather than hoped for.
+///         Ownership is two-step and cannot be renounced.
+///      8. A contest can only be committed here if `SpinRegistry` binds it to THIS
+///         contract. v2 never consulted the registry, and 41 live contests ran with no
+///         binding at all.
+///      9. Batches in a segment are finalized strictly in commit order. The draw walks
+///         one shared permutation per segment, so the order in which batches finalize
+///         decides which deck indexes they get; letting any caller pick that order let
+///         anyone with knowledge of the deck steer it.
+///     10. Segment capacity is reserved at commit, not at finalize, so a segment can
+///         never be oversubscribed into a batch that can never finish; and an entry id
+///         can be committed once per contest.
+///     11. A head batch whose seed never arrives can be voided by anyone after
+///         `VOID_DELAY`, so one lost VRF request cannot block every later batch now that
+///         finalization is ordered. A SEEDED contest can be abandoned only after
+///         `ABANDON_DELAY`, long enough that abandoning to re-roll a deck is useless.
+contract SpinAssignment is Ownable2Step {
     // -------------------------------------------------------------------------
     // Types
     // -------------------------------------------------------------------------
@@ -67,6 +102,16 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
     /// @dev Hard ceiling on entries per batch, enforced at commit time so that a batch
     ///      can always be finalized. Chosen with the 4s/100-entry trigger policy.
     uint32 public constant MAX_BATCH_SIZE = 256;
+
+    /// @dev How long an unseeded batch must wait before anyone may void it. VRF on Base
+    ///      fulfils in seconds; a day of silence means the request is lost.
+    uint64 public constant VOID_DELAY = 1 days;
+
+    /// @dev How long after its build seed lands a SEEDED contest must wait before it may
+    ///      be abandoned. Abandoning is how a failed build is recorded, but abandoning
+    ///      the moment the seed is public would let the owner re-roll decks it dislikes.
+    ///      Three days outlives the slate a deck is built for.
+    uint64 public constant ABANDON_DELAY = 3 days;
 
     struct Contest {
         bytes32 snapshotHash;
@@ -125,6 +170,13 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
     // Storage
     // -------------------------------------------------------------------------
 
+    /// @notice The VRF coordinator. Immutable (see design note 6). Named as in
+    ///         Chainlink's base contract so existing tooling reads it unchanged.
+    IVRFCoordinatorV2Plus public immutable s_vrfCoordinator;
+
+    /// @notice The registry a contest must be bound in to be committed here.
+    ISpinRegistryBinding public immutable registry;
+
     /// @notice Address permitted to commit contests and batches. Hot key, held by the worker.
     address public operator;
 
@@ -149,6 +201,21 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
     mapping(bytes32 batchId => mapping(uint32 position => uint32 deckIndexPlusOne)) private _assignments;
 
     mapping(uint256 requestId => PendingRequest) private _requests;
+
+    /// @notice Deck slots promised to committed batches that have not been voided.
+    ///         Capacity is checked against this, not against `remaining`, which only
+    ///         falls as batches finalize (WebThree M-08).
+    mapping(bytes32 contestId => mapping(uint8 segment => uint32 slots)) public reserved;
+
+    /// @notice The only batch sequence that may finalize next in a segment.
+    mapping(bytes32 contestId => mapping(uint8 segment => uint64 next)) public nextFinalizeSequence;
+
+    /// @notice An entry id is committed at most once per contest (WebThree M-08).
+    mapping(bytes32 contestId => mapping(bytes32 entryId => bool)) public entryCommitted;
+
+    mapping(bytes32 batchId => uint64 timestamp) public batchCommittedAt;
+    mapping(bytes32 batchId => bool) public batchVoided;
+    mapping(bytes32 contestId => uint64 timestamp) public contestSeededAt;
 
     // -------------------------------------------------------------------------
     // Events
@@ -197,6 +264,7 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
         bytes32 indexed batchId, bytes32 indexed entryId, uint32 position, uint8 segment, uint32 deckIndex
     );
     event BatchFinalized(bytes32 indexed batchId, uint32 assigned);
+    event BatchVoided(bytes32 indexed batchId, bytes32 indexed contestId, uint8 segment, uint64 sequence);
 
     // -------------------------------------------------------------------------
     // Errors
@@ -204,8 +272,17 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
 
     error NotOperator();
     error Paused();
-    // NOTE: `ZeroAddress` is inherited from VRFConsumerBaseV2Plus; redeclaring it here
-    // is a compile error, so this contract intentionally reuses the base's error.
+    error ZeroAddress();
+    error OnlyCoordinatorCanFulfill(address have, address want);
+    error OwnerCannotOperate();
+    error CannotRenounce();
+    error NotBoundHere(address boundTo);
+    error DuplicateEntry(bytes32 entryId);
+    error ZeroEntryId();
+    error OutOfOrder(uint64 expectedSequence);
+    error BatchVoidedError();
+    error VoidTooEarly(uint64 allowedAt);
+    error AbandonTooEarly(uint64 allowedAt);
     error ContestExists();
     error ContestNotFound();
     error WrongContestStatus(ContestStatus actual);
@@ -247,10 +324,16 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
     // Construction
     // -------------------------------------------------------------------------
 
-    constructor(address vrfCoordinator, address initialOperator, VrfConfig memory config)
-        VRFConsumerBaseV2Plus(vrfCoordinator)
+    constructor(address vrfCoordinator, address initialOperator, address registry_, VrfConfig memory config)
+        Ownable(msg.sender)
     {
-        if (initialOperator == address(0)) revert ZeroAddress();
+        if (vrfCoordinator == address(0) || initialOperator == address(0) || registry_ == address(0)) {
+            revert ZeroAddress();
+        }
+        // The deployer becomes the owner; it must not also be the hot key.
+        if (initialOperator == msg.sender) revert OwnerCannotOperate();
+        s_vrfCoordinator = IVRFCoordinatorV2Plus(vrfCoordinator);
+        registry = ISpinRegistryBinding(registry_);
         operator = initialOperator;
         vrfConfig = config;
         emit OperatorChanged(address(0), initialOperator);
@@ -260,12 +343,15 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
     }
 
     // -------------------------------------------------------------------------
-    // Admin (owner is the Safe; ConfirmedOwner gives a two-step handover)
+    // Admin (owner is the Safe; Ownable2Step gives a two-step handover)
     // -------------------------------------------------------------------------
 
     /// @notice Rotate the operator hot key. State only, never code.
+    /// @dev Never to the owner, or to an owner mid-handover: the key that signs every
+    ///      batch must not also hold the keys to pause, reconfigure and abandon.
     function setOperator(address newOperator) external onlyOwner {
         if (newOperator == address(0)) revert ZeroAddress();
+        if (newOperator == owner() || newOperator == pendingOwner()) revert OwnerCannotOperate();
         emit OperatorChanged(operator, newOperator);
         operator = newOperator;
     }
@@ -276,6 +362,24 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
     function setPaused(bool value) external onlyOwner {
         paused = value;
         emit PausedSet(value);
+    }
+
+    /// @dev Proposing the operator as owner would collapse the two roles again.
+    function transferOwnership(address newOwner) public override onlyOwner {
+        if (newOwner != address(0) && newOwner == operator) revert OwnerCannotOperate();
+        super.transferOwnership(newOwner);
+    }
+
+    /// @dev Checked again at acceptance, in case the operator was rotated to the pending
+    ///      owner in between.
+    function acceptOwnership() public override {
+        if (msg.sender == operator) revert OwnerCannotOperate();
+        super.acceptOwnership();
+    }
+
+    /// @dev An ownerless contract could never be paused or have its operator rotated.
+    function renounceOwnership() public view override onlyOwner {
+        revert CannotRenounce();
     }
 
     function setVrfConfig(VrfConfig calldata config) external onlyOwner {
@@ -289,11 +393,19 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
     /// @dev Exists so that a failed build is an explicit, publicly visible on-chain event
     ///      rather than a silent gap. A contest that reached COMMITTED can never be
     ///      abandoned, because entrants may already hold assignments.
+    ///
+    ///      Once the build seed is public the deck is computable, so abandoning then
+    ///      and starting again under a fresh id would be a re-roll. A SEEDED contest can
+    ///      therefore only be abandoned after `ABANDON_DELAY` (WebThree M-07/M-08).
     function abandonContest(bytes32 contestId, string calldata reason) external onlyOwner {
         Contest storage c = _contests[contestId];
         if (c.status == ContestStatus.NONE) revert ContestNotFound();
         if (c.status != ContestStatus.STAGE1 && c.status != ContestStatus.SEEDED) {
             revert WrongContestStatus(c.status);
+        }
+        if (c.status == ContestStatus.SEEDED) {
+            uint64 allowedAt = contestSeededAt[contestId] + ABANDON_DELAY;
+            if (block.timestamp < allowedAt) revert AbandonTooEarly(allowedAt);
         }
         c.status = ContestStatus.ABANDONED;
         emit ContestAbandoned(contestId, reason);
@@ -320,6 +432,11 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
         Contest storage c = _contests[contestId];
         if (c.status != ContestStatus.NONE) revert ContestExists();
         if (saltCommitment == bytes32(0)) revert SaltCommitmentRequired();
+
+        // The registry decides which code governs a contest (design note 8). A view
+        // call to a fixed, trusted address, before any state is written.
+        address boundTo = registry.implementationOf(contestId);
+        if (boundTo != address(this)) revert NotBoundHere(boundTo);
 
         // CHECKS-EFFECTS-INTERACTIONS. Claim the contest slot BEFORE calling the
         // coordinator, so a reentrant call finds `status != NONE` and reverts
@@ -406,7 +523,8 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
         if (size > MAX_BATCH_SIZE) revert BatchTooLarge();
 
         Segment storage seg = _segments[contestId][segment];
-        if (seg.remaining < size) revert SegmentExhausted();
+        uint32 alreadyReserved = reserved[contestId][segment];
+        if (seg.size - alreadyReserved < size) revert SegmentExhausted();
 
         uint64 expected = nextBatchSequence[contestId][segment];
         if (sequence != expected) revert BadSequence(expected);
@@ -415,6 +533,10 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
         if (_batches[batchId].contestId != bytes32(0)) revert BatchExists();
 
         bytes32 entriesHash = keccak256(abi.encodePacked(entryIds));
+
+        _claimEntries(contestId, entryIds);
+        reserved[contestId][segment] = alreadyReserved + size;
+        batchCommittedAt[batchId] = uint64(block.timestamp);
 
         // CHECKS-EFFECTS-INTERACTIONS. Claim the batch slot and burn the
         // sequence number BEFORE calling the coordinator. A reentrant call then
@@ -447,9 +569,32 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
         emit BatchCommitted(batchId, contestId, segment, sequence, entriesHash, entryIds, requestId);
     }
 
+    /// @dev One entry id, one deck slot, per contest (WebThree M-08). A duplicate within
+    ///      a batch is caught too, because the first occurrence is marked before the
+    ///      second is read. Split out of `commitBatch` to keep it off the stack limit.
+    function _claimEntries(bytes32 contestId, bytes32[] calldata entryIds) private {
+        mapping(bytes32 => bool) storage seen = entryCommitted[contestId];
+        for (uint256 i = 0; i < entryIds.length; ++i) {
+            bytes32 entryId = entryIds[i];
+            if (entryId == bytes32(0)) revert ZeroEntryId();
+            if (seen[entryId]) revert DuplicateEntry(entryId);
+            seen[entryId] = true;
+        }
+    }
+
     // -------------------------------------------------------------------------
     // VRF callback
     // -------------------------------------------------------------------------
+
+    /// @notice Called by the coordinator, and only the coordinator, with the random words.
+    /// @dev Same selector as Chainlink's `VRFConsumerBaseV2Plus.rawFulfillRandomWords`,
+    ///      so the coordinator needs no knowledge of this contract beyond it.
+    function rawFulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) external {
+        if (msg.sender != address(s_vrfCoordinator)) {
+            revert OnlyCoordinatorCanFulfill(msg.sender, address(s_vrfCoordinator));
+        }
+        fulfillRandomWords(requestId, randomWords);
+    }
 
     /// @dev MUST NOT REVERT, under any input, ever.
     ///
@@ -457,7 +602,7 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
     ///      consumed and lost forever and the batch is permanently unfinalizable, with no
     ///      recovery path on an immutable contract. Every branch here is therefore a
     ///      silent return rather than a revert, and no external calls are made.
-    function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
+    function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal {
         if (randomWords.length == 0) return;
 
         PendingRequest memory req = _requests[requestId];
@@ -472,11 +617,14 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
             if (c.status != ContestStatus.STAGE1) return;
             c.vrfBuildSeed = word;
             c.status = ContestStatus.SEEDED;
+            contestSeededAt[req.targetId] = uint64(block.timestamp);
             emit BuildSeedFulfilled(req.targetId, requestId, word);
         } else {
             Batch storage b = _batches[req.targetId];
             if (b.contestId == bytes32(0)) return;
             if (b.seeded) return;
+            // A voided batch's entries were refunded; a late seed must not revive it.
+            if (batchVoided[req.targetId]) return;
             b.seed = word;
             b.seeded = true;
             emit BatchSeedFulfilled(req.targetId, requestId, word);
@@ -508,8 +656,14 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
 
         Batch storage b = _batches[batchId];
         if (b.contestId == bytes32(0)) revert BatchNotFound();
+        if (batchVoided[batchId]) revert BatchVoidedError();
         if (!b.seeded) revert BatchNotSeeded();
         if (b.cursor >= b.size) revert BatchAlreadyFinalized();
+
+        // Commit order, and only commit order (design note 9). A batch may finish
+        // across several calls; the next one may not start until it has.
+        uint64 expectedSeq = nextFinalizeSequence[b.contestId][b.segment];
+        if (b.sequence != expectedSeq) revert OutOfOrder(expectedSeq);
         if (uint32(entryIds.length) != b.size) revert EntriesHashMismatch();
         if (keccak256(abi.encodePacked(entryIds)) != b.entriesHash) revert EntriesHashMismatch();
 
@@ -529,7 +683,37 @@ contract SpinAssignment is VRFConsumerBaseV2Plus {
         b.cursor = end;
         processed = end - start;
 
-        if (end == b.size) emit BatchFinalized(batchId, b.size);
+        if (end == b.size) {
+            nextFinalizeSequence[b.contestId][b.segment] = expectedSeq + 1;
+            emit BatchFinalized(batchId, b.size);
+        }
+    }
+
+    /// @notice Void the next batch in line when its seed has not arrived after
+    ///         `VOID_DELAY`. Callable by anyone.
+    /// @dev Ordered finalization means one lost VRF request would otherwise block every
+    ///      later batch in the segment forever. Only the head of the queue can be voided,
+    ///      and only while unseeded, so no drawn outcome can ever be discarded: the seed
+    ///      that would decide it does not exist. The batch's reservation is released and
+    ///      its entries are refunded off-chain. Its entry ids stay spent.
+    function voidBatch(bytes32 batchId) external {
+        Batch storage b = _batches[batchId];
+        if (b.contestId == bytes32(0)) revert BatchNotFound();
+        if (batchVoided[batchId]) revert BatchVoidedError();
+        if (b.seeded) revert WrongContestStatus(_contests[b.contestId].status);
+
+        uint64 expectedSeq = nextFinalizeSequence[b.contestId][b.segment];
+        if (b.sequence != expectedSeq) revert OutOfOrder(expectedSeq);
+
+        uint64 allowedAt = batchCommittedAt[batchId] + VOID_DELAY;
+        if (block.timestamp < allowedAt) revert VoidTooEarly(allowedAt);
+
+        batchVoided[batchId] = true;
+        reserved[b.contestId][b.segment] -= b.size;
+        nextFinalizeSequence[b.contestId][b.segment] = expectedSeq + 1;
+        delete _requests[b.requestId];
+
+        emit BatchVoided(batchId, b.contestId, b.segment, b.sequence);
     }
 
     /// @dev Split out of `finalize` purely to keep the stack shallow. Holds no logic of

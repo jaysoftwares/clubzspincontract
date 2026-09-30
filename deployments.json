@@ -30,16 +30,22 @@
       "safe": null
     },
     "outstanding": [
-      "Add the NEW SpinAssignment 0xaCb6b682... as a VRF consumer. The old address can be removed.",
-      "Update SPIN_ASSIGNMENT_ADDRESS to 0xaCb6b682... on BOTH spinworker and clubzapi.",
-      "Fund the operator 0xdC95... with Base ETH; it holds ~0.0026 and the floor is 0.005.",
-      "Create a Safe and transfer ownership of both contracts (two-step: transferOwnership then acceptOwnership).",
-      "Audit before binding any real-money contest."
+      "Deploy SpinAssignment v3 (src/SpinAssignment.sol at this commit) with script/DeployUpgrade.s.sol from a deployer that is NOT the operator key, and make it the registry default. See clubzapi/SPIN_WORKER_DEPLOY.md, 'Rolling over to SpinAssignment v3'.",
+      "Add v3 as a VRF consumer; remove v1.",
+      "Create a Safe. Run script/TransferRoles.s.sol with SPIN_NEW_OPERATOR (a fresh, funded key), SPIN_NEW_OWNER=<safe> and SPIN_SUPERSEDED_ASSIGNMENTS=<v1>, against v2, then SPIN_NEW_OWNER against v3; the Safe accepts ownership of each.",
+      "Point SPIN_ASSIGNMENT_ADDRESS at v3 and SPIN_OPERATOR_PRIVATE_KEY at the new operator on BOTH spinworker and clubzapi. SPIN_REGISTRY_ADDRESS is required: the worker binds every contest before stage 1.",
+      "Reveal the salts of the two COMMITTED contests past lock; abandon the seven SEEDED ones from the Safe.",
+      "Record the v3 address here once deployed and verified."
     ],
     "SpinAssignment_v1_superseded": {
       "address": "0x6Bb0d32dCa4F58cb89191dDEc4b47481C028f753",
       "verified": true,
       "note": "SUPERSEDED, do not use. Still approved in the registry so any contest bound to it could settle, but none ever was."
+    },
+    "SpinAssignment_v3": {
+      "address": null,
+      "source": "src/SpinAssignment.sol",
+      "note": "Not yet deployed. Fixes WebThree H-07 (immutable VRF coordinator, owner != operator enforced, registry binding enforced at stage 1, finalize in commit order) and M-08 (capacity reserved at commit, duplicate entry ids rejected, stuck head batches voidable after a day, SEEDED contests abandonable only after three days). ABI keeps every v2 function; the constructor takes the registry address."
     }
   }
 }

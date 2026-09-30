@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {SpinAssignment} from "../src/SpinAssignment.sol";
+import {SpinRegistry} from "../src/SpinRegistry.sol";
 import {VRFCoordinatorV2_5Mock} from "@chainlink/contracts/src/v0.8/vrf/mocks/VRFCoordinatorV2_5Mock.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {Test} from "forge-std/Test.sol";
@@ -48,10 +49,13 @@ contract SpinHandler is Test {
     function commitBatch(uint256 sizeSeed, uint256 segmentSeed) external {
         uint8 segment = uint8(segmentSeed % 2);
         SpinAssignment.Segment memory seg = spin.getSegment(CONTEST, segment);
-        if (seg.remaining == 0) return;
+        // Capacity is reserved at commit (WebThree M-08), so it is `size - reserved`,
+        // not `remaining`, that bounds a new batch.
+        uint32 free = seg.size - spin.reserved(CONTEST, segment);
+        if (free == 0) return;
 
         uint32 size = uint32(bound(sizeSeed, 1, 40));
-        if (size > seg.remaining) size = seg.remaining;
+        if (size > free) size = free;
 
         uint64 sequence = spin.nextBatchSequence(CONTEST, segment);
         bytes32[] memory ids = new bytes32[](size);
@@ -87,6 +91,17 @@ contract SpinHandler is Test {
 
         SpinAssignment.Batch memory b = spin.getBatch(batchId);
         if (!b.seeded || b.cursor >= b.size) return;
+        // Finalization is in commit order (WebThree H-07). The fuzzer still picks any
+        // batch; one that is not next in its segment must be refused, never assigned.
+        if (b.sequence != spin.nextFinalizeSequence(CONTEST, b.segment)) {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    SpinAssignment.OutOfOrder.selector, spin.nextFinalizeSequence(CONTEST, b.segment)
+                )
+            );
+            spin.finalize(batchId, entriesOf[batchId], 1);
+            return;
+        }
 
         uint32 chunk = uint32(bound(chunkSeed, 1, 128));
         uint32 start = b.cursor;
@@ -133,10 +148,13 @@ contract SpinAssignmentInvariantTest is StdInvariant, Test {
         uint256 subId = coordinator.createSubscription();
         coordinator.fundSubscription(subId, 100_000 ether);
 
+        SpinRegistry registry = new SpinRegistry(admin, operator);
+
         vm.prank(admin);
         spin = new SpinAssignment(
             address(coordinator),
             operator,
+            address(registry),
             SpinAssignment.VrfConfig({
                 keyHash: keccak256("lane"),
                 subId: subId,
@@ -146,6 +164,13 @@ contract SpinAssignmentInvariantTest is StdInvariant, Test {
             })
         );
         coordinator.addConsumer(subId, address(spin));
+
+        vm.startPrank(admin);
+        registry.setApproved(address(spin), true);
+        registry.setDefaultImplementation(address(spin));
+        vm.stopPrank();
+        vm.prank(operator);
+        registry.bind(handler_CONTEST());
 
         // Take one contest all the way to COMMITTED so the handler can churn on it.
         vm.prank(operator);
@@ -209,6 +234,37 @@ contract SpinAssignmentInvariantTest is StdInvariant, Test {
     function invariant_segmentNeverOversold() public view {
         assertLe(handler.totalAssigned(0), 400, "direct segment oversold");
         assertLe(handler.totalAssigned(1), 200, "promo segment oversold");
+    }
+
+    /// @notice Reservations never exceed a segment, and always cover every batch that
+    ///         has been committed but not finished (WebThree M-08).
+    function invariant_reservationsCoverOutstandingBatches() public view {
+        for (uint8 seg = 0; seg < 2; ++seg) {
+            uint32 size = spin.getSegment(handler_CONTEST(), seg).size;
+            uint32 reservedSlots = spin.reserved(handler_CONTEST(), seg);
+            assertLe(reservedSlots, size, "segment over-reserved");
+
+            uint256 committed;
+            uint256 n = handler.batchCount();
+            for (uint256 i = 0; i < n; ++i) {
+                SpinAssignment.Batch memory b = spin.getBatch(handler.batchIds(i));
+                if (b.segment == seg) committed += b.size;
+            }
+            assertEq(reservedSlots, committed, "reservations drifted from committed batches");
+        }
+    }
+
+    /// @notice Finalization never runs ahead of commitment, and a batch is fully
+    ///         finalized exactly when it is behind the finalize pointer (WebThree H-07).
+    function invariant_finalizeFollowsCommitOrder() public view {
+        uint256 n = handler.batchCount();
+        for (uint256 i = 0; i < n; ++i) {
+            bytes32 id = handler.batchIds(i);
+            SpinAssignment.Batch memory b = spin.getBatch(id);
+            uint64 nextFin = spin.nextFinalizeSequence(handler_CONTEST(), b.segment);
+            assertLe(nextFin, spin.nextBatchSequence(handler_CONTEST(), b.segment), "finalized ahead of commits");
+            assertEq(b.sequence < nextFin, spin.isBatchFinalized(id), "finalize pointer disagrees with batches");
+        }
     }
 
     /// @notice A batch cursor never exceeds its committed size.

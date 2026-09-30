@@ -421,6 +421,7 @@ contract SpinAssignmentTest is SpinBase {
         uint256 rid = _stage1(CONTEST);
         _fulfill(rid, 5);
 
+        vm.warp(block.timestamp + spin.ABANDON_DELAY());
         vm.prank(admin);
         spin.abandonContest(CONTEST, "capacity gate failed");
 
@@ -520,7 +521,9 @@ contract SpinAssignmentTest is SpinBase {
         internal
         returns (bytes32 batchId, bytes32[] memory ids)
     {
-        ids = _entryIds(n, sequence);
+        // Distinct per segment as well as per sequence: an entry id may be committed
+        // once per contest (WebThree M-08).
+        ids = _entryIds(n, (uint256(segment) << 64) | sequence);
         vm.prank(operator);
         uint256 rid;
         (batchId, rid) = spin.commitBatch(contestId, segment, sequence, ids);

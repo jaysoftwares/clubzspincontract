@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import {SpinAssignment} from "../src/SpinAssignment.sol";
+import {SpinRegistry} from "../src/SpinRegistry.sol";
 import {VRFCoordinatorV2_5Mock} from "@chainlink/contracts/src/v0.8/vrf/mocks/VRFCoordinatorV2_5Mock.sol";
 import {Test} from "forge-std/Test.sol";
 
@@ -9,6 +10,7 @@ import {Test} from "forge-std/Test.sol";
 ///      exercise the actual consumer path, including the callback, rather than a stub.
 abstract contract SpinBase is Test {
     SpinAssignment internal spin;
+    SpinRegistry internal registry;
     VRFCoordinatorV2_5Mock internal coordinator;
 
     address internal admin = makeAddr("admin");
@@ -29,10 +31,14 @@ abstract contract SpinBase is Test {
         subId = coordinator.createSubscription();
         coordinator.fundSubscription(subId, 1000 ether);
 
+        // The operator is the registry's binder, as in production.
+        registry = new SpinRegistry(admin, operator);
+
         vm.prank(admin);
         spin = new SpinAssignment(
             address(coordinator),
             operator,
+            address(registry),
             SpinAssignment.VrfConfig({
                 keyHash: KEY_HASH,
                 subId: subId,
@@ -43,11 +49,24 @@ abstract contract SpinBase is Test {
         );
 
         coordinator.addConsumer(subId, address(spin));
+
+        vm.startPrank(admin);
+        registry.setApproved(address(spin), true);
+        registry.setDefaultImplementation(address(spin));
+        vm.stopPrank();
+    }
+
+    /// @dev Bind a contest to this deployment, as the worker does before stage 1.
+    function _bind(bytes32 contestId) internal {
+        if (registry.implementationOf(contestId) != address(0)) return;
+        vm.prank(operator);
+        registry.bind(contestId);
     }
 
     // ---------------------------------------------------------------- helpers
 
     function _stage1(bytes32 contestId) internal returns (uint256 requestId) {
+        _bind(contestId);
         vm.prank(operator);
         requestId = spin.commitStage1(
             contestId,

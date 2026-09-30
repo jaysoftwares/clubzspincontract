@@ -13,6 +13,11 @@
         "internalType": "address"
       },
       {
+        "name": "registry_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "config",
         "type": "tuple",
         "internalType": "struct SpinAssignment.VrfConfig",
@@ -49,6 +54,19 @@
   },
   {
     "type": "function",
+    "name": "ABANDON_DELAY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_BATCH_SIZE",
     "inputs": [],
     "outputs": [
@@ -69,6 +87,19 @@
         "name": "",
         "type": "uint32",
         "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "VOID_DELAY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -97,6 +128,44 @@
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "batchCommittedAt",
+    "inputs": [
+      {
+        "name": "batchId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "timestamp",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "batchVoided",
+    "inputs": [
+      {
+        "name": "batchId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -250,6 +319,25 @@
   },
   {
     "type": "function",
+    "name": "contestSeededAt",
+    "inputs": [
+      {
+        "name": "contestId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "timestamp",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "effectiveBuildSeed",
     "inputs": [
       {
@@ -263,6 +351,30 @@
         "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "entryCommitted",
+    "inputs": [
+      {
+        "name": "contestId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "entryId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -561,6 +673,30 @@
   },
   {
     "type": "function",
+    "name": "nextFinalizeSequence",
+    "inputs": [
+      {
+        "name": "contestId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "segment",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "operator",
     "inputs": [],
     "outputs": [
@@ -600,6 +736,19 @@
   },
   {
     "type": "function",
+    "name": "pendingOwner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "rawFulfillRandomWords",
     "inputs": [
       {
@@ -615,6 +764,50 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "registry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract ISpinRegistryBinding"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "renounceOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "reserved",
+    "inputs": [
+      {
+        "name": "contestId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "segment",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "slots",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -646,19 +839,6 @@
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "setCoordinator",
-    "inputs": [
-      {
-        "name": "_vrfCoordinator",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -731,9 +911,22 @@
     "name": "transferOwnership",
     "inputs": [
       {
-        "name": "to",
+        "name": "newOwner",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "voidBatch",
+    "inputs": [
+      {
+        "name": "batchId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [],
@@ -867,6 +1060,37 @@
   },
   {
     "type": "event",
+    "name": "BatchVoided",
+    "inputs": [
+      {
+        "name": "batchId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "contestId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "segment",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "sequence",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "BuildSeedFulfilled",
     "inputs": [
       {
@@ -918,19 +1142,6 @@
         "type": "bytes32",
         "indexed": true,
         "internalType": "bytes32"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "CoordinatorSet",
-    "inputs": [
-      {
-        "name": "vrfCoordinator",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -993,16 +1204,16 @@
   },
   {
     "type": "event",
-    "name": "OwnershipTransferRequested",
+    "name": "OwnershipTransferStarted",
     "inputs": [
       {
-        "name": "from",
+        "name": "previousOwner",
         "type": "address",
         "indexed": true,
         "internalType": "address"
       },
       {
-        "name": "to",
+        "name": "newOwner",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -1015,13 +1226,13 @@
     "name": "OwnershipTransferred",
     "inputs": [
       {
-        "name": "from",
+        "name": "previousOwner",
         "type": "address",
         "indexed": true,
         "internalType": "address"
       },
       {
-        "name": "to",
+        "name": "newOwner",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -1198,6 +1409,17 @@
   },
   {
     "type": "error",
+    "name": "AbandonTooEarly",
+    "inputs": [
+      {
+        "name": "allowedAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "BadSequence",
     "inputs": [
       {
@@ -1234,6 +1456,16 @@
   },
   {
     "type": "error",
+    "name": "BatchVoidedError",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CannotRenounce",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ChunkTooLarge",
     "inputs": []
   },
@@ -1254,6 +1486,17 @@
   },
   {
     "type": "error",
+    "name": "DuplicateEntry",
+    "inputs": [
+      {
+        "name": "entryId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "EmptyBatch",
     "inputs": []
   },
@@ -1266,6 +1509,17 @@
     "type": "error",
     "name": "LockInPast",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotBoundHere",
+    "inputs": [
+      {
+        "name": "boundTo",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1295,24 +1549,41 @@
   },
   {
     "type": "error",
-    "name": "OnlyOwnerOrCoordinator",
+    "name": "OutOfOrder",
     "inputs": [
       {
-        "name": "have",
-        "type": "address",
-        "internalType": "address"
-      },
+        "name": "expectedSequence",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OwnableInvalidOwner",
+    "inputs": [
       {
         "name": "owner",
         "type": "address",
         "internalType": "address"
-      },
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OwnableUnauthorizedAccount",
+    "inputs": [
       {
-        "name": "coordinator",
+        "name": "account",
         "type": "address",
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "OwnerCannotOperate",
+    "inputs": []
   },
   {
     "type": "error",
@@ -1346,6 +1617,17 @@
   },
   {
     "type": "error",
+    "name": "VoidTooEarly",
+    "inputs": [
+      {
+        "name": "allowedAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "WrongContestStatus",
     "inputs": [
       {
@@ -1358,6 +1640,11 @@
   {
     "type": "error",
     "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroEntryId",
     "inputs": []
   }
 ]

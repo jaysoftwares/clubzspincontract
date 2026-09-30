@@ -27,9 +27,13 @@ contract Deploy is Script {
 
         vm.startBroadcast();
 
+        // The registry first: v3 only commits contests the registry binds to it.
+        SpinRegistry registry = new SpinRegistry(msg.sender, operator);
+
         SpinAssignment assignment = new SpinAssignment(
             vrfCoordinator,
             operator,
+            address(registry),
             SpinAssignment.VrfConfig({
                 keyHash: keyHash,
                 subId: subId,
@@ -39,7 +43,6 @@ contract Deploy is Script {
             })
         );
 
-        SpinRegistry registry = new SpinRegistry(msg.sender, operator);
         registry.setApproved(address(assignment), true);
         registry.setDefaultImplementation(address(assignment));
 

@@ -19,6 +19,10 @@ import {console2} from "forge-std/console2.sol";
 ///
 /// Or with no node at all, since a script run has its own EVM:
 ///   forge script script/LocalLifecycle.s.sol:LocalLifecycle
+///
+/// The owner (the default sender) and the operator are DIFFERENT accounts, because the
+/// contract refuses to let one key hold both roles (WebThree H-07). The operator
+/// defaults to anvil's second well-known dev key; override with SPIN_LOCAL_OPERATOR_PK.
 contract LocalLifecycle is Script {
     bytes32 constant CONTEST = keccak256("local-contest-1");
     bytes32 constant SALT = keccak256("local-salt-keep-this-secret");
@@ -27,7 +31,14 @@ contract LocalLifecycle is Script {
     uint32 constant PROMO_SIZE = 50;
     uint32 constant BATCH_SIZE = 12;
 
+    /// @dev anvil's account #1. A public development key; never fund it on a real chain.
+    uint256 constant ANVIL_KEY_1 = 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d;
+
     function run() external {
+        uint256 operatorPk = vm.envOr("SPIN_LOCAL_OPERATOR_PK", ANVIL_KEY_1);
+        address operator = vm.addr(operatorPk);
+
+        // ------------------------------------------------ deploy, as the owner
         vm.startBroadcast();
 
         // ---------------------------------------------------------- deploy
@@ -35,9 +46,14 @@ contract LocalLifecycle is Script {
         uint256 subId = coordinator.createSubscription();
         coordinator.fundSubscription(subId, 1000 ether);
 
+        // The registry first: the assignment contract only commits contests the
+        // registry binds to it. The operator is the registry's binder.
+        SpinRegistry registry = new SpinRegistry(msg.sender, operator);
+
         SpinAssignment spin = new SpinAssignment(
             address(coordinator),
-            msg.sender,
+            operator,
+            address(registry),
             SpinAssignment.VrfConfig({
                 keyHash: keccak256("local-lane"),
                 subId: subId,
@@ -48,9 +64,12 @@ contract LocalLifecycle is Script {
         );
         coordinator.addConsumer(subId, address(spin));
 
-        SpinRegistry registry = new SpinRegistry(msg.sender, msg.sender);
         registry.setApproved(address(spin), true);
         registry.setDefaultImplementation(address(spin));
+        vm.stopBroadcast();
+
+        // ------------------------------------------- everything else, as the operator
+        vm.startBroadcast(operatorPk);
         registry.bind(CONTEST);
 
         console2.log("coordinator :", address(coordinator));
