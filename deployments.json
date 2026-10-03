@@ -25,17 +25,21 @@
       "consumerAdded": false
     },
     "roles": {
-      "owner": "0xdC95eeFD3C5914d9Dd4C34e81DCF957A67F7C04A",
-      "operator": "0xdC95eeFD3C5914d9Dd4C34e81DCF957A67F7C04A",
-      "safe": null
+      "registryOwner": "0xdC95eeFD3C5914d9Dd4C34e81DCF957A67F7C04A",
+      "registryBinder": "0x3478b3F4E229eDC73F3fB1d39f4689f59EB776Cf",
+      "v2Owner": "0xd5ea69AD5C6CbBD7dB4AEfa1f7bfC802EA6DA8d2",
+      "v2Operator": "0x3478b3F4E229eDC73F3fB1d39f4689f59EB776Cf",
+      "v3Owner": "0xdC95eeFD3C5914d9Dd4C34e81DCF957A67F7C04A",
+      "v3Operator": "0x3478b3F4E229eDC73F3fB1d39f4689f59EB776Cf",
+      "safe": null,
+      "note": "Read on-chain 2026-10-03. v2 roles were rotated off the deployer earlier; 0xd5ea..A8d2 is an EOA, not a Safe.",
+      "registryBinderTx": "0xba50e17cc834d107d79768a2787e75e43c5ce6e2ad8660fb2561e19b6abcb5d5"
     },
     "outstanding": [
-      "Deploy SpinAssignment v3 (src/SpinAssignment.sol at this commit) with script/DeployUpgrade.s.sol from a deployer that is NOT the operator key, and make it the registry default. See clubzapi/SPIN_WORKER_DEPLOY.md, 'Rolling over to SpinAssignment v3'.",
-      "Add v3 as a VRF consumer; remove v1.",
+      "Add v3 (0x6C82A2E6...A03f) as a VRF consumer on the subscription; remove v1.",
       "Create a Safe. Run script/TransferRoles.s.sol with SPIN_NEW_OPERATOR (a fresh, funded key), SPIN_NEW_OWNER=<safe> and SPIN_SUPERSEDED_ASSIGNMENTS=<v1>, against v2, then SPIN_NEW_OWNER against v3; the Safe accepts ownership of each.",
       "Point SPIN_ASSIGNMENT_ADDRESS at v3 and SPIN_OPERATOR_PRIVATE_KEY at the new operator on BOTH spinworker and clubzapi. SPIN_REGISTRY_ADDRESS is required: the worker binds every contest before stage 1.",
-      "Reveal the salts of the two COMMITTED contests past lock; abandon the seven SEEDED ones from the Safe.",
-      "Record the v3 address here once deployed and verified."
+      "Reveal the salts of the two COMMITTED contests past lock; abandon the seven SEEDED ones from the Safe."
     ],
     "SpinAssignment_v1_superseded": {
       "address": "0x6Bb0d32dCa4F58cb89191dDEc4b47481C028f753",
@@ -43,9 +47,17 @@
       "note": "SUPERSEDED, do not use. Still approved in the registry so any contest bound to it could settle, but none ever was."
     },
     "SpinAssignment_v3": {
-      "address": null,
-      "source": "src/SpinAssignment.sol",
-      "note": "Not yet deployed. Fixes WebThree H-07 (immutable VRF coordinator, owner != operator enforced, registry binding enforced at stage 1, finalize in commit order) and M-08 (capacity reserved at commit, duplicate entry ids rejected, stuck head batches voidable after a day, SEEDED contests abandonable only after three days). ABI keeps every v2 function; the constructor takes the registry address."
+      "address": "0x6C82A2E623224C7CB93899937B8fA6012a1eA03f",
+      "deployedAt": "2026-10-03",
+      "txHash": "0xba61424edf6e5c8f0f900905521fccf60ce2574e91363ba3b0c6db72c5e40e21",
+      "registryApproveTx": "0xb409f565b6f61864f20c3c749e1524df98f40727dbb8f498a5fd14d8087cd2fc",
+      "registryDefaultTx": "0x64bc5f8fe9afab002310cdb556720c811a7bd03b921b4d1555db8a666cdae3b9",
+      "source": "src/SpinAssignment.sol @ f0f93e9",
+      "immutable": true,
+      "verified": true,
+      "owner": "0xdC95eeFD3C5914d9Dd4C34e81DCF957A67F7C04A",
+      "operator": "0x3478b3F4E229eDC73F3fB1d39f4689f59EB776Cf",
+      "note": "Registry default since 2026-10-03. Fixes WebThree H-07 and M-08. Ownership still with the deployer pending a Safe."
     }
   }
 }
